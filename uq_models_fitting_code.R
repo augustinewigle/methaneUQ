@@ -1,3 +1,4 @@
+# Libraries
 library(runjags)
 library(bayesplot)
 library(dplyr)
@@ -7,9 +8,11 @@ library(HDInterval)
 library(tidyr)
 library(stringr)
 
+# read in data
 second_trial_data <- read.csv("trial2_anon.csv")
 first_trial_data <- read.csv("trial1_anon.csv")
 
+# Make functions available
 source("helper_functions.R")
 
 # QOGI provider C - uncertainty -------------------------------------------------
@@ -123,6 +126,7 @@ n_imp <- 4000 # number of samples to draw from desired dist in importance sampli
 
 set.seed(23)
 true_Q <- 25
+# Sample reasonable measurements for true_Q
 Qmeas_new <- quad_linear(true_Q, posterior = as.matrix(posterior[sample(1:nrow(posterior), 5),]))
 
 # Two different priors
