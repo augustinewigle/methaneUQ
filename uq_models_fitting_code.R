@@ -131,10 +131,11 @@ Qprior2 <- rlnorm(M, meanlog = 2.6, sdlog = 1) # 2.6 comes from Zavala-Araiza et
 p1 <- hist(Qprior1, freq = F, breaks = 50)
 p2 <- hist(Qprior2, freq = F, breaks = 50)
 
-# Get results - may take several mins to run
+# Get posterior distributions - may take several mins to run
 post_prior1_Qmeas1 <- predict_Q(Qmeas_new = Qmeas_new[1], Qnew_prior_sample = Qprior1,
                                 posterior = posterior, n_imp = n_imp,
                                 density_func = qogiC_density_func)
+# this one may take 10 or so mins
 post_prior1_Qmeas2 <- predict_Q(Qmeas_new = Qmeas_new, Qnew_prior_sample = Qprior1,
                                 posterior = posterior, n_imp = n_imp,
                                 density_func = qogiC_density_func)
@@ -146,3 +147,10 @@ post_prior2_Qmeas1 <- predict_Q(Qmeas_new = Qmeas_new[1], Qnew_prior_sample = Qp
 post_prior2_Qmeas2 <- predict_Q(Qmeas_new = Qmeas_new, Qnew_prior_sample = Qprior2,
                                 posterior = posterior, n_imp = n_imp,
                                 density_func = qogiC_density_func)
+
+# Now you can do what you wish with your posteriors.
+# Example - obtain 90% Credible intervals
+p1q1 <- hdi(post_prior1_Qmeas1, credMass = 0.9)
+p1q2 <- hdi(post_prior1_Qmeas2, credMass = 0.9)
+p2q1 <- hdi(post_prior2_Qmeas1, credMass = 0.9)
+p2q2 <- hdi(post_prior2_Qmeas2, credMass = 0.9)
