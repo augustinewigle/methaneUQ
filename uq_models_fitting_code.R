@@ -1,3 +1,5 @@
+# Make functions available and load libraries
+source("helper_functions.R")
 # Libraries
 library(runjags)
 library(bayesplot)
@@ -12,9 +14,6 @@ library(stringr)
 second_trial_data <- read.csv("trial2_anon.csv")
 first_trial_data <- read.csv("trial1_anon.csv")
 
-# Make functions available
-source("helper_functions.R")
-
 # QOGI provider C - uncertainty -------------------------------------------------
 
 qogiC_dat <- data_prep(second_trial_data, technology_name = "qogiC")
@@ -22,43 +21,47 @@ qogiC_dat <- data_prep(second_trial_data, technology_name = "qogiC")
 qogiC_dat_external <- data_prep(first_trial_data, technology_name = "qogiC")
 
 # Create model string
-model_qogiC <- make_model(normalmean_str = "log(alpha0+alpha1*Q[i] + alpha2*Q[i]*Q[i]*(1-ind[i]) + (ind[i])*(beta0 + beta1*Q[i]))
-                         ind[i] <- (Q[i] > t)",
-                          normalprec_str = "tau_base + Q[i]/c",
+model_qogiC <- make_model(logphi_str = "log(alpha0+alpha1*Q[i] +
+                                            alpha2*Q[i]*Q[i]*(1-ind[i]) +
+                                            (ind[i])*(beta0 + beta1*Q[i]))
+                                        ind[i] <- (Q[i] > gamma)",
+                          sigmasq_inv_str = "tau_base + Q[i]/eta",
                           priors_str = "
 
-                       beta0 <- alpha2*t^2-beta1*t
+                       beta0 <- alpha2*gamma^2-beta1*gamma
                        tau_base <- 1/sigma_base^2
                        sigma_base ~ dnorm(0,0.01) T(0,) # Gelman 2006 - this is the SD of Qmeas when Q=0
-                       c ~ dnorm(0, 0.01) T(0,)
+                       eta ~ dnorm(0, 0.01) T(0,)
                        alpha0 ~ dgamma(0.5,2)
                        alpha1 ~ dlnorm(0,1)
                        alpha2 ~ dnorm(0,1) T(0,)
                        beta1 ~ dlnorm(0, 1)
-                       t ~ dunif(0,80)
+                       gamma ~ dunif(0,80)
                        ")
 # Look at JAGS model code
 cat(model_qogiC)
 
 # Run the model in JAGS
 samples_qogiC <- run.jags(model = model_qogiC,
-                        monitor = c("alpha0", "alpha1","alpha2","beta1", "beta0","t", "tau_base","c"),
+                        monitor = c("alpha0", "alpha1","alpha2","beta1", "beta0","gamma", "tau_base","eta"),
                         data = qogiC_dat,
                         n.chains = 2,
                         burnin = 10000,
+                        sample = 10000,
                         inits = list(list(alpha0 = 0.001,
                                           alpha1 = rlnorm(1),
                                           alpha2 = 0.0001,
                                           sigma_base = runif(1, 0, 50),
-                                          t = 1),
+                                          gamma = 1),
                                      list(alpha0 = 0.01,
                                           alpha1 = rlnorm(1),
                                           alpha2 = 0.0001,
                                           sigma_base = runif(1, 0, 50),
-                                          t = 2)))
+                                          gamma = 2)))
 
 # Assess convergence
 mcmc_trace(samples_qogiC$mcmc)
+
 summary(samples_qogiC)
 
 # Extracting the DIC
@@ -80,8 +83,8 @@ nirhsi_dat <- data_prep(all_data = second_trial_data,
 nirhsi_dat_external <- data_prep(all_data = first_trial_data,
                                  technology_name = "nirhsi")
 
-model_nirhsi <- make_model(normalmean_str = "log(alpha0 + alpha1*Q[i])",
-                        normalprec_str = "tau",
+model_nirhsi <- make_model(logphi_str = "log(alpha0 + alpha1*Q[i])",
+                        sigmasq_inv_str = "tau",
                         priors_str = "
 
                          tau <- 1/sigma^2

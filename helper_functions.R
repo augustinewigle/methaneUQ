@@ -1,7 +1,18 @@
+
+
 # JAGS Functions ----------------------------------------------------------------
 
 #' Creates jags code string
-make_model <- function(normalmean_str, normalprec_str, priors_str, logscale = T, t = F) {
+#' @param logphi_str String of JAGS code that describes the specification of log(phi_i). indexing of data/parameters using "[i]"
+#' @param sigmasq_inv_str String of JAGS code that describes the specification of the INVERSE of the variance parameter for observation i. indexing of data/parameters using "[i]"
+#' @param priors_str String of JAGS code that specifies priors for all parameters in the model. See the SI and JAGS user manual for help.
+#' @param logscale Should the likelihood be specified on the log of the measurements or on the raw measurements? Default is T
+#' @param t Should the t distribution with 3 degrees of freedom be used instead of the normal distribution for the likelihood? Default is F. Can be used for sensitivity analysis.
+make_model <- function(logphi_str,
+                       sigmasq_inv_str,
+                       priors_str,
+                       logscale = T,
+                       t = F) {
 
   if(logscale & t) {
 
@@ -21,9 +32,9 @@ model {
 
   for(i in 1:nobs) {
 
-    mean[i] <-", normalmean_str, "
+    mean[i] <-", logphi_str, "
 
-    logQmeas[i] ~ dt(mean[i],", normalprec_str,", 3)
+    logQmeas[i] ~ dt(mean[i],", sigmasq_inv_str,", 3)
 
   }
 
@@ -51,9 +62,9 @@ model {
 
   for(i in 1:nobs) {
 
-    mean[i] <-", normalmean_str, "
+    mean[i] <-", logphi_str, "
 
-    logQmeas[i] ~ dnorm(mean[i],", normalprec_str,")
+    logQmeas[i] ~ dnorm(mean[i],", sigmasq_inv_str,")
 
   }
 
@@ -74,7 +85,7 @@ model {
 
     mean[i] <-", normalmean_str, "
 
-    Qmeas[i] ~ dlnorm(mean[i], ", normalprec_str, ")
+    Qmeas[i] ~ dlnorm(mean[i], ", sigmasq_inv_str, ")
 
   }
 
@@ -88,9 +99,7 @@ model {
 
   }
 
-
-
-return(jags_str)
+  return(jags_str)
 
 }
 
@@ -122,66 +131,19 @@ data_prep <- function(all_data, technology_name = "all", Qmeas_name = "estimate_
 
 # Plotting functions ---------------------------------------------------------------------------------
 
-#' @param Qtrue_vals a vector of Qtrue_vals that you want to generature posterior predictions for
-#' @param samples_obj a run.jags object contaitning posterior samples from model
-#' @param Qmeas_func name of function which will draw predictions for Qmeas given a value of Q and a posterior of named parameters
-#' @return A matrix of dimensions (number of iterations in posterior) by (number of Qtrue values)
-
-generate_predictions <- function(Qtrue_vals, samples_obj, Qmeas_func) {
-
-  posterior <- combine.mcmc(samples_obj$mcmc)
-
-  Qmeas_plot_post <- matrix(nrow = nrow(posterior), ncol = length(Qtrue_vals))
-
-  for(i in 1:length(Qtrue_vals)) {
-
-    Qmeas_plot_post[,i] <- Qmeas_func(Q_val = Qtrue_vals[i], posterior = posterior)
-
-  }
-
-  return(Qmeas_plot_post)
-
-}
-
-quantile_df <- function(x, prediction_levels, hdi = F) {
-
-  if(hdi) {
-
-    df <- data.frame(lower = rep(NA, length(prediction_levels)),
-                     upper = rep(NA, length(prediction_levels)),
-                     pred_level = prediction_levels)
-
-    for(i in 1:length(prediction_levels)) {
-
-      df[i,] <- c(hdi(x, prediction_levels[i]), prediction_levels[i])
-
-    }
-
-    pivot_longer(df, cols = c("lower", "upper"), names_to = "ci", values_to = "val") %>%
-      transmute(val = val, ci = paste0(ci, pred_level))
-
-  } else {
-
-    alphas <- 0.5*(1-prediction_levels)
-
-    probs <- c(alphas, 1-alphas)
-
-    tibble(
-      val = quantile(x, probs = probs),
-      ci = paste0(c(rep("lower", length(prediction_levels)), rep("upper", length(prediction_levels))), rep(prediction_levels, 2))
-    )
-
-  }
-
-
-}
-
-
-
+#' Create scatterplots with prediction bands, as shown in the publication
+#' @param data The data used to fit the model. Should be a list with named elements Q and Qmeas, like from the helper function data_prep
+#' @param newdata Optional; external data to compare to prediction bands. Same format as argument data
+#' @param samples_obj a run.jags object which contains the MCMC samples from the posterior of Theta
+#' @param Qtrue_vals Vector of x values to use when generating prediction bands. The longer the vector the longer it takes to run, but the smoother
+#'                   the prediction bands will be
+#' @param plot_Qmeas_val_func The name of an R function which draws from the likelihood of a measurement for fixed Theta and true emission rate. Arguments are Q_val and posterior
+#' @param title_str A string to specify a custom title for the plot
+#' @param hdi logical; Should highest density CIs be used? Default is F, and quantile-based CIs are calculated
+#' @param fixed_yrange Either NA, where the range of the Y axis is determined automatically. Otherwise, vector of length 2 giving lower and upper limits for the Y axis, to zoom in or out of the plot
 scatter_gg <- function(data,
                        newdata = NA,
                        samples_obj = NA,
-                       draws = NA,
                        Qtrue_vals,
                        plot_Qmeas_val_func,
                        title_str = "",
@@ -223,17 +185,9 @@ scatter_gg <- function(data,
 
   } else {
 
-    Qmeas_posterior <- matrix(nrow = draws, ncol = length(Qtrue_vals))
-
-    for(i in 1:length(Qtrue_vals)) {
-
-      Qmeas_posterior[,i] <- plot_Qmeas_val_func(Q_val = Qtrue_vals[i], draws = draws)
-
-    }
+    stop("samples_obj must be specified")
 
   }
-
-  # return(data_plot)
 
   colnames(Qmeas_posterior) <- paste0("Q = ", Qtrue_vals) # each column corresponds to one Qtrue value
 
@@ -255,8 +209,6 @@ scatter_gg <- function(data,
                         intercept = c(0,NA),
                         linetype = c(2, 1),
                         name = c("Perfect prediction line", "Posterior median prediction"))
-
-  #return(Qmeas_posterior_long)
 
   if(length(fixed_yrange) > 1) {
 
@@ -335,14 +287,76 @@ scatter_gg <- function(data,
 
 }
 
+#' Helper function for scatter_gg
+#' @param Qtrue_vals a vector of Qtrue_vals that you want to generature posterior predictions for
+#' @param samples_obj a run.jags object contaitning posterior samples from model
+#' @param Qmeas_func name of function which will draw predictions for Qmeas given a value of Q and a posterior of named parameters. Arguments are Q_val and posterior.
+#' @return A matrix of dimensions (number of iterations in posterior) by (number of Qtrue values)
+
+generate_predictions <- function(Qtrue_vals, samples_obj, Qmeas_func) {
+
+  posterior <- combine.mcmc(samples_obj$mcmc)
+
+  Qmeas_plot_post <- matrix(nrow = nrow(posterior), ncol = length(Qtrue_vals))
+
+  for(i in 1:length(Qtrue_vals)) {
+
+    Qmeas_plot_post[,i] <- Qmeas_func(Q_val = Qtrue_vals[i], posterior = posterior)
+
+  }
+
+  return(Qmeas_plot_post)
+
+}
+
+#' Helper function for scatter_gg
+quantile_df <- function(x, prediction_levels, hdi = F) {
+
+  if(hdi) {
+
+    df <- data.frame(lower = rep(NA, length(prediction_levels)),
+                     upper = rep(NA, length(prediction_levels)),
+                     pred_level = prediction_levels)
+
+    for(i in 1:length(prediction_levels)) {
+
+      df[i,] <- c(hdi(x, prediction_levels[i]), prediction_levels[i])
+
+    }
+
+    pivot_longer(df, cols = c("lower", "upper"), names_to = "ci", values_to = "val") %>%
+      transmute(val = val, ci = paste0(ci, pred_level))
+
+  } else {
+
+    alphas <- 0.5*(1-prediction_levels)
+
+    probs <- c(alphas, 1-alphas)
+
+    tibble(
+      val = quantile(x, probs = probs),
+      ci = paste0(c(rep("lower", length(prediction_levels)), rep("upper", length(prediction_levels))), rep(prediction_levels, 2))
+    )
+
+  }
+
+
+}
+
+
+
 # function which will draw predictions for Qmeas given a value of Q (Q_val) and a posterior of named parameters, for the QOGI C preferred model
 quad_linear <- function(Q_val, posterior) {
 
-  meani <- log(posterior[,"alpha0"] + posterior[,"alpha1"]*Q_val + posterior[,"alpha2"]*Q_val^2 +
-                 (Q_val>posterior[,"t"])*(posterior[,"alpha2"]*(posterior[,"t"]^2 - Q_val^2) + posterior[,"beta1"]*(Q_val-posterior[,"t"])))
+  meani <- log(posterior[,"alpha0"] +
+                 posterior[,"alpha1"]*Q_val +
+                 posterior[,"alpha2"]*Q_val^2 +
+                 (Q_val>posterior[,"gamma"])*
+                 (posterior[,"alpha2"]*(posterior[,"gamma"]^2 - Q_val^2) +
+                    posterior[,"beta1"]*(Q_val-posterior[,"gamma"])))
   epsi <- rnorm(nrow(posterior),
                 mean = 0,
-                sd = 1/sqrt(posterior[,"tau_base"] + Q_val/posterior[,"c"]))
+                sd = 1/sqrt(posterior[,"tau_base"] + Q_val/posterior[,"eta"]))
   exp(meani+epsi)
 }
 
@@ -382,7 +396,6 @@ predict_Q <- function(Qmeas_new, Qnew_prior_sample, posterior, n_imp, density_fu
 #' @param Y_new is numeric value of Y_new (log(Qmeas_new))
 #' @param posterior samples from the posterior distribution
 #' @param density_func
-
 e_theta <- function(Q_new, Y_new, posterior, density_func) {
 
   npts <- length(Y_new)
@@ -400,12 +413,12 @@ e_theta <- function(Q_new, Y_new, posterior, density_func) {
 
 qogiC_density_func <- function(y, q, posterior) {
 
-  small <- if_else(q > posterior[,"t"], 0, 1)
+  small <- if_else(q > posterior[,"gamma"], 0, 1)
 
   # return the normal density
   dnorm(x=y,
         mean = log(small*(posterior[,"alpha0"] + posterior[,"alpha1"]*q + posterior[,"alpha2"]*q^2) +
                      (1-small)*(posterior[,"alpha0"] + posterior[,"beta0"] + (posterior[,"alpha1"] + posterior[,"beta1"])*q)),
-        sd = sqrt(1/(posterior[,"tau_base"] + q/posterior[,"c"])))
+        sd = sqrt(1/(posterior[,"tau_base"] + q/posterior[,"eta"])))
 
 }
